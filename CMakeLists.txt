@@ -31,6 +31,7 @@ add_executable(vulkan_feature_extraction
   src/VulkanSetup.cpp
   src/VK_CommandPool.cpp
   src/VK_Image.cpp
+  src/VK_Buffer.cpp
 )
 
 target_link_libraries(vulkan_feature_extraction PRIVATE 

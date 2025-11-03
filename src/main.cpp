@@ -9,6 +9,7 @@
 #include "VK_Utils.h"
 #include "VK_CommandPool.h"
 #include "VK_Image.h"
+#include "VK_Buffer.h"
 
 
 
@@ -90,6 +91,38 @@ int main() {
     VulkanImage outImage(vk.device(), vk.physicalDevice(), width, height);
 
     //5. Staging buffer & upload to inImage
+    StagingBuffer stagingBuffer(vk.device(), vk.physicalDevice(), imageSize);
+
+    stagingBuffer.uploadImage(image); //Upload Image to staging Buffer
+    // Transfer to GPU images
+    {
+        VkCommandBuffer cmd = beginOneShot(vk.device(), cmdPool.get());
+    
+        // Transition input image for transfer
+        transitionImage(cmd, inImage.image(),
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        // Copy staging to input image
+        stagingBuffer.uploadToImage(image, inImage.image(), cmd, width, height);
+
+        // Transition input image for compute
+        transitionImage(cmd, inImage.image(),
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        // Prepare output image for compute writes
+        transitionImage(cmd, outImage.image(),
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+            0, VK_ACCESS_SHADER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        endOneShot(vk.device(), vk.computeQueue(), cmdPool.get(), cmd);
+    }
+    
+    /*
     VkBuffer staging{}; 
     VkDeviceMemory stagingMem{};
     {
@@ -137,6 +170,7 @@ int main() {
 
         endOneShot(vk.device(), vk.computeQueue(), cmdPool.get(), cmd);
     }
+    */
 
     // ----- 8) Descriptors: binding 0 = in, 1 = out -----
     VkDescriptorSetLayoutBinding b0{}; 
@@ -241,21 +275,10 @@ int main() {
     }
 
     // ----- 11) Readback outImage -> buffer -> save as out.png -----
-    VkBuffer readback{};
-    VkDeviceMemory readMem{};
-    {
-        VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        bi.size = imageSize; bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        VK_CHECK(vkCreateBuffer(vk.device(), &bi, nullptr, &readback), "vkCreateBuffer(readback)");
-        VkMemoryRequirements mr{}; 
-        vkGetBufferMemoryRequirements(vk.device(), readback, &mr);
-        VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-        mai.allocationSize = mr.size;
-        mai.memoryTypeIndex = findMemoryType(mr.memoryTypeBits, vk.physicalDevice(),
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        VK_CHECK(vkAllocateMemory(vk.device(), &mai, nullptr, &readMem), "vkAllocateMemory(readback)");
-        VK_CHECK(vkBindBufferMemory(vk.device(), readback, readMem, 0), "vkBindBufferMemory(readback)");
-    }
+    VulkanBuffer readbackBuffer(vk.device(), vk.physicalDevice(), imageSize,
+                           VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
     {
         VkCommandBuffer cmd = beginOneShot(vk.device(), cmdPool.get());
         transitionImage(cmd, outImage.image(),
@@ -267,25 +290,23 @@ int main() {
         r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         r.imageOffset = {0,0,0};
         r.imageExtent = {width, height, 1};
-        vkCmdCopyImageToBuffer(cmd, outImage.image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1, &r);
+        vkCmdCopyImageToBuffer(cmd, outImage.image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 
+                          readbackBuffer.buffer(), 1, &r);
 
         endOneShot(vk.device(), vk.computeQueue(), cmdPool.get(), cmd);
     }
+
     {
-        void* mapped = nullptr;
-        VK_CHECK(vkMapMemory(vk.device(), readMem, 0, imageSize, 0, &mapped), "vkMapMemory(readback)");
+        void* mapped = readbackBuffer.mapMemory(imageSize);
         cv::Mat out(height, width, CV_8UC4, mapped); // RGBA
         cv::Mat outBGR; cv::cvtColor(out, outBGR, cv::COLOR_RGBA2BGR);
         cv::imwrite("out.png", outBGR);
-        vkUnmapMemory(vk.device(), readMem);
+        readbackBuffer.unmapMemory();
         std::cout << "Wrote out.png\n";
     }
 
     // Schritt 12: Ressourcen freigeben (Aufräumen)
     vkDeviceWaitIdle(vk.device());
-
-    vkDestroyBuffer(vk.device(), readback, nullptr);
-    vkFreeMemory(vk.device(), readMem, nullptr);
 
     vkDestroyPipeline(vk.device(), pipeline, nullptr);
     vkDestroyPipelineLayout(vk.device(), layout, nullptr);
@@ -294,9 +315,6 @@ int main() {
     vkDestroyDescriptorPool(vk.device(), dpool, nullptr);
     vkDestroyDescriptorSetLayout(vk.device(), dsl, nullptr);
 
-
-    vkDestroyBuffer(vk.device(), staging, nullptr);
-    vkFreeMemory(vk.device(), stagingMem, nullptr);
 
     return 0;
 }

@@ -1,0 +1,58 @@
+{
+  // Use Ninja and a dedicated build directory
+  "cmake.generator": "Ninja",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+
+  // Ensure VS Code config sees your SDK even if the terminal didn't export it
+  "cmake.configureEnvironment": {
+    "VULKAN_SDK": "/Users/olehoffmann/VulkanSDK/vulkan/macOS"
+  },
+
+  // C/C++ IntelliSense via CMake Tools
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+
+  // Nice to have
+  "files.associations": {
+    "*.glsl": "glsl",
+    "__bit_reference": "cpp",
+    "__locale": "cpp",
+    "__verbose_abort": "cpp",
+    "array": "cpp",
+    "bitset": "cpp",
+    "cctype": "cpp",
+    "clocale": "cpp",
+    "cmath": "cpp",
+    "cstdarg": "cpp",
+    "cstddef": "cpp",
+    "cstdint": "cpp",
+    "cstdio": "cpp",
+    "cstdlib": "cpp",
+    "cstring": "cpp",
+    "ctime": "cpp",
+    "cwchar": "cpp",
+    "cwctype": "cpp",
+    "initializer_list": "cpp",
+    "ios": "cpp",
+    "iosfwd": "cpp",
+    "iostream": "cpp",
+    "istream": "cpp",
+    "limits": "cpp",
+    "locale": "cpp",
+    "mutex": "cpp",
+    "new": "cpp",
+    "optional": "cpp",
+    "print": "cpp",
+    "queue": "cpp",
+    "ratio": "cpp",
+    "stack": "cpp",
+    "stdexcept": "cpp",
+    "streambuf": "cpp",
+    "string": "cpp",
+    "string_view": "cpp",
+    "typeinfo": "cpp",
+    "variant": "cpp",
+    "algorithm": "cpp"
+},
+"cmake.configureOnOpen": true,
+"C_Cpp.errorSquiggles": "disabled"
+}

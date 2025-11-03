@@ -1,0 +1,4 @@
+/Users/olehoffmann/Documents/TUM/Studium/4. Semester/Guided Research/Coding/Vulkan Feature Extraction/build/CMakeFiles/vulkan_feature_extraction.dir
+/Users/olehoffmann/Documents/TUM/Studium/4. Semester/Guided Research/Coding/Vulkan Feature Extraction/build/CMakeFiles/shaders.dir
+/Users/olehoffmann/Documents/TUM/Studium/4. Semester/Guided Research/Coding/Vulkan Feature Extraction/build/CMakeFiles/edit_cache.dir
+/Users/olehoffmann/Documents/TUM/Studium/4. Semester/Guided Research/Coding/Vulkan Feature Extraction/build/CMakeFiles/rebuild_cache.dir

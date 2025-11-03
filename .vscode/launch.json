@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch First Excercise Vulkan",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/first_exercise_vulkan",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        { "name": "VULKAN_SDK", "value": "/Users/olehoffmann/VulkanSDK/vulkan/macOS" },
+        { "name": "VK_ICD_FILENAMES", "value": "/Users/olehoffmann/VulkanSDK/vulkan/macOS/share/vulkan/icd.d/MoltenVK_icd.json" },
+        { "name": "VK_LAYER_PATH", "value": "/Users/olehoffmann/VulkanSDK/vulkan/macOS/share/vulkan/explicit_layer.d" }
+      ],
+      "externalConsole": true,
+      "MIMode": "lldb"
+    }
+  ]
+}

@@ -29,7 +29,8 @@ find_package(OpenCV REQUIRED)
 add_executable(vulkan_feature_extraction
   src/main.cpp
   src/VulkanSetup.cpp
-
+  src/VK_CommandPool.cpp
+  src/VK_Image.cpp
 )
 
 target_link_libraries(vulkan_feature_extraction PRIVATE 

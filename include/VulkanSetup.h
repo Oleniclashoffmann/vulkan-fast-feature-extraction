@@ -38,7 +38,6 @@ private:
     static bool hasExtension(const std::vector<VkExtensionProperties>& list, const char* name);
     static bool hasLayer(const std::vector<VkLayerProperties>& list, const char* name);
 
-private:
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice_ = VK_NULL_HANDLE;
     uint32_t computeQueueFamilyIndex_ = 0;

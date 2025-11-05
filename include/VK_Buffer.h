@@ -18,7 +18,7 @@ public:
     
     // Accessors
     VkBuffer buffer() const { return buffer_; }
-    VkDeviceMemory memory() const { memory_; }
+    VkDeviceMemory memory() const { return memory_; }
     VkDevice device() const { return device_; }
     VkDeviceSize size() const { return size_; }
     

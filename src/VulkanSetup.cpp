@@ -10,7 +10,7 @@
 #define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
 #endif
 
-// --- Helpers ---------------------------------------------------------------
+//Helpers 
 
 static void vkCheck(VkResult r, const char* where) {
     if (r != VK_SUCCESS) {
@@ -32,7 +32,7 @@ bool VulkanSetup::hasLayer(const std::vector<VkLayerProperties>& list, const cha
     return false;
 }
 
-// --- Lifecycle -------------------------------------------------------------
+//Lifecycle 
 
 VulkanSetup::VulkanSetup(const Options& opts) {
     createInstance(opts);
@@ -74,7 +74,7 @@ VulkanSetup& VulkanSetup::operator=(VulkanSetup&& o) noexcept {
     return *this;
 }
 
-// --- Steps -----------------------------------------------------------------
+//Steps
 
 void VulkanSetup::createInstance(const Options& opts) {
     // Instance extensions

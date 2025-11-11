@@ -9,6 +9,13 @@ layout(binding = 1, std430) writeonly buffer OutputBuffer {
     uint data[];
 } outBuf;
 
+//Corner-liste
+layout(binding = 2, std430) buffer CornerList {
+    uint capacity;   // max. Anzahl Elemente in coords[]
+    uint count;      // wird per atomicAdd inkrementiert
+    uvec2 coords[];  // Laufzeit-Array der Corner-Koordinaten
+} corners;
+
 layout(push_constant) uniform PushConstants {
     uint width;
     uint height;
@@ -91,4 +98,11 @@ void main() {
     }
 
     storeRGBA(p, color);
+    
+    if (isCorner(p, size)) {
+        uint i = atomicAdd(corners.count, 1u);
+        if (i < corners.capacity) {
+            corners.coords[i] = uvec2(p);
+        }
+    }
 }

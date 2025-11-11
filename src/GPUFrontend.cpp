@@ -36,6 +36,8 @@ GPUFrontend::~GPUFrontend() {
         if (m_OutBufferMemory) {
             m_device.freeMemory(m_OutBufferMemory);
         }
+        if (m_CornerBuffer) m_device.destroyBuffer(m_CornerBuffer);
+        if (m_CornerBufferMemory) m_device.freeMemory(m_CornerBufferMemory);
 
         // Clean up command pool
         if (m_commandPool) {
@@ -254,7 +256,8 @@ void GPUFrontend::createDescriptorSetLayout()
 {
     const std::vector<vk::DescriptorSetLayoutBinding> bindings = {
         {0, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute},
-        {1, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute}
+        {1, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute},
+        {2, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute}
     };
     
     vk::DescriptorSetLayoutCreateInfo layoutInfo(
@@ -272,7 +275,7 @@ void GPUFrontend::createPipelineLayout()
         0, 
         sizeof(uint32_t) * 2  
     );
-    
+    std::array<vk::DescriptorSetLayout,1> setLayouts{ m_descriptorSetLayout };
     vk::PipelineLayoutCreateInfo layoutInfo(
         vk::PipelineLayoutCreateFlags(),
         m_descriptorSetLayout,
@@ -318,13 +321,14 @@ void GPUFrontend::createDescriptorPool()
 {
     vk::DescriptorPoolSize poolSize(
         vk::DescriptorType::eStorageBuffer, 
-        2  
+        3  
     );
     
     vk::DescriptorPoolCreateInfo poolInfo(
         vk::DescriptorPoolCreateFlags(), 
+        1,
         1,         
-        poolSize   
+        &poolSize   
     );
     
     m_descriptorPool = m_device.createDescriptorPool(poolInfo);
@@ -357,6 +361,12 @@ void GPUFrontend::updateDescriptorSet()
         0,            
         m_deviceSize    
     );
+
+    vk::DescriptorBufferInfo cornerInfo(
+        m_CornerBuffer, 
+        0, 
+        m_cornerBufferSize
+    );
     
     const std::vector<vk::WriteDescriptorSet> writeDescriptorSets = {
         {
@@ -377,6 +387,16 @@ void GPUFrontend::updateDescriptorSet()
             vk::DescriptorType::eStorageBuffer,    
             nullptr,                                
             &outBufferInfo
+        },
+
+        {
+            m_descriptorSet, 
+            2, 
+            0, 
+            1, 
+            vk::DescriptorType::eStorageBuffer, 
+            nullptr, 
+            &cornerInfo
         }
     };
     
@@ -385,6 +405,7 @@ void GPUFrontend::updateDescriptorSet()
 
 void GPUFrontend::createDescriptorResources() 
 {
+    createCornerBuffer(m_imageWidth, m_imageHeight);
     createDescriptorPool();
     allocateDescriptorSet();
     updateDescriptorSet();
@@ -472,4 +493,59 @@ cv::Mat GPUFrontend::readbackOutputBuffer(int width, int height, int channels)
     }
     
     return result;
+}
+
+void GPUFrontend::createCornerBuffer(uint32_t width, uint32_t height) {
+    uint32_t capacity = (width * height) / 10u; // heuristisch
+    if (capacity < 1024) capacity = 1024;       // Mindestgröße
+
+    m_cornerBufferSize = 8 + static_cast<vk::DeviceSize>(capacity) * 8;
+
+    vk::BufferCreateInfo ci({}, m_cornerBufferSize,
+                            vk::BufferUsageFlagBits::eStorageBuffer,
+                            vk::SharingMode::eExclusive, 1, &m_computeQueueFamilyIndex);
+    m_CornerBuffer = m_device.createBuffer(ci);
+
+    auto memReq = m_device.getBufferMemoryRequirements(m_CornerBuffer);
+    vk::PhysicalDeviceMemoryProperties memProps = m_physicalDevice.getMemoryProperties();
+    uint32_t typeIdx = UINT32_MAX;
+    for (uint32_t i=0;i<memProps.memoryTypeCount;++i) {
+        if ((memReq.memoryTypeBits & (1<<i)) &&
+            (memProps.memoryTypes[i].propertyFlags &
+             (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) ==
+            (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
+            typeIdx = i; break;
+        }
+    }
+    if (typeIdx == UINT32_MAX) throw std::runtime_error("No memory type for corner buffer");
+    vk::MemoryAllocateInfo ai(memReq.size, typeIdx);
+    m_CornerBufferMemory = m_device.allocateMemory(ai);
+    m_device.bindBufferMemory(m_CornerBuffer, m_CornerBufferMemory, 0);
+
+    // Initialisieren: capacity, count=0
+    void* ptr = m_device.mapMemory(m_CornerBufferMemory, 0, m_cornerBufferSize);
+    auto* u32 = reinterpret_cast<uint32_t*>(ptr);
+    u32[0] = capacity; 
+    u32[1] = 0;        
+
+    m_device.unmapMemory(m_CornerBufferMemory);
+}
+
+std::vector<u_int32_t> GPUFrontend::readbackCorners() {
+    if (!m_CornerBufferMemory) return {};
+    void* ptr = m_device.mapMemory(m_CornerBufferMemory, 0, m_cornerBufferSize);
+    auto* u32 = reinterpret_cast<uint32_t*>(ptr);
+    uint32_t capacity = u32[0];
+    uint32_t count = u32[1];
+    if (count > capacity) count = capacity;
+    std::vector<u_int32_t> flat;
+    flat.reserve(count*2);
+    // coords starten bei Offset 8 Bytes
+    auto* coords = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr)+8);
+    for (uint32_t i=0;i<count;++i) {
+        flat.push_back(coords[i*2+0]); // x
+        flat.push_back(coords[i*2+1]); // y
+    }
+    m_device.unmapMemory(m_CornerBufferMemory);
+    return flat;
 }

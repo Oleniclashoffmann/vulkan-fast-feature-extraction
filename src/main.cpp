@@ -34,7 +34,35 @@ int main() {
 
     gpuFrontend.createDescriptorResources();
 
+    const uint32_t workgroupSizeX = 16;
+    const uint32_t workgroupSizeY = 16;
+    uint32_t groupCountX = (W + workgroupSizeX - 1) / workgroupSizeX;
+    uint32_t groupCountY = (H + workgroupSizeY - 1) / workgroupSizeY;
+        
+    gpuFrontend.executeComputeShader(groupCountX, groupCountY, 1);
+        
+    cv::Mat outputImage = gpuFrontend.readbackOutputBuffer(W, H, 3); 
+        
+    cv::imwrite("output.png", outputImage);
+    std::cout << "✓ Output saved to output.png" << std::endl;
+
     
+    cv::Mat gray;
+    cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+
+    const int fastThresh = int(0.3f * 255.0f); // Shader THRESH=0.3 → ~77
+    bool nonmax = true;
+    cv::Ptr<cv::FastFeatureDetector> fast = cv::FastFeatureDetector::create(
+        fastThresh, nonmax, cv::FastFeatureDetector::TYPE_9_16);
+
+    std::vector<cv::KeyPoint> kps;
+    fast->detect(gray, kps);
+
+    cv::Mat cpuVis = image.clone();
+    cv::drawKeypoints(image, kps, cpuVis, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_OVER_OUTIMG);
+    cv::imwrite("output_cpu.png", cpuVis);
+    std::cout << "✓ CPU FAST saved to output_cpu.png (" << kps.size() << " keypoints)" << std::endl;
+
 
     return 0;
 }

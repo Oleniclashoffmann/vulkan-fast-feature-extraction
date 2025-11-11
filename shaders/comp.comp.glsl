@@ -1,42 +1,57 @@
 #version 450
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(binding = 0, rgba8) readonly  uniform image2D inImg;
-layout(binding = 1, rgba8) writeonly uniform image2D outImg;
+// Packed RGBA8 per pixel
+layout(binding = 0, std430) readonly buffer InputBuffer {
+    uint data[];
+} inBuf;
+layout(binding = 1, std430) writeonly buffer OutputBuffer {
+    uint data[];
+} outBuf;
 
-// --- Tunables ---
-const int  R = 6;              // circle radius for FAST-9
-const int  N = 9;              // contiguous arc length
-const float THRESH = 0.3;     // intensity threshold in [0,1]
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+} pc;
 
-// Circle offsets for radius 3, starting at top and going clockwise
+const int  R = 3;
+const int  N = 9;
+const float THRESH = 0.3;
+
 const ivec2 circle[16] = ivec2[16](
-    ivec2( 0,-6), ivec2( 2,-6), ivec2( 4,-5), ivec2( 5,-4),
-    ivec2( 6, 0), ivec2( 5, 4), ivec2( 4, 5), ivec2( 2, 6),
-    ivec2( 0, 6), ivec2(-2, 6), ivec2(-4, 5), ivec2(-5, 4),
-    ivec2(-6, 0), ivec2(-5,-4), ivec2(-4,-5), ivec2(-2,-6)
+    ivec2( 0,-3), ivec2( 1,-3), ivec2( 2,-2), ivec2( 3,-1),
+    ivec2( 3, 0), ivec2( 3, 1), ivec2( 2, 2), ivec2( 1, 3),
+    ivec2( 0, 3), ivec2(-1, 3), ivec2(-2, 2), ivec2(-3, 1),
+    ivec2(-3, 0), ivec2(-3,-1), ivec2(-2,-2), ivec2(-1,-3)
 );
 
-float luminance(vec4 rgba) {
-    return dot(rgba.rgb, vec3(0.299, 0.587, 0.114));
+// index helpers
+uint idx(ivec2 p) { return uint(p.y) * pc.width + uint(p.x); }
+
+// load/store with pack/unpack (assumes input is RGBA8 in [0,255])
+vec4 loadRGBA(ivec2 p) {
+    if (p.x < 0 || p.y < 0 || p.x >= int(pc.width) || p.y >= int(pc.height)) return vec4(0.0);
+    return unpackUnorm4x8(inBuf.data[idx(p)]); // returns vec4 in [0,1]
+}
+void storeRGBA(ivec2 p, vec4 c) {
+    if (p.x < 0 || p.y < 0 || p.x >= int(pc.width) || p.y >= int(pc.height)) return;
+    outBuf.data[idx(p)] = packUnorm4x8(clamp(c, 0.0, 1.0));
 }
 
+ivec2 imageSize() { return ivec2(int(pc.width), int(pc.height)); }
+float luminance(vec4 rgba) { return dot(rgba.rgb, vec3(0.299, 0.587, 0.114)); }
+
 bool isCorner(ivec2 p, ivec2 size) {
-    if (p.x < R || p.y < R || p.x >= size.x - R || p.y >= size.y - R)
-        return false;
-
-    float I0 = luminance(imageLoad(inImg, p));
-    bool bright[32];
-    bool dark[32];
-
+    if (p.x < R || p.y < R || p.x >= size.x - R || p.y >= size.y - R) return false;
+    float I0 = luminance(loadRGBA(p));
+    bool bright[32]; bool dark[32];
     for (int i = 0; i < 16; ++i) {
-        float Ii = luminance(imageLoad(inImg, p + circle[i]));
+        float Ii = luminance(loadRGBA(p + circle[i]));
         bright[i] = (Ii >= I0 + THRESH);
         dark[i]   = (Ii <= I0 - THRESH);
         bright[i+16] = bright[i];
         dark[i+16]   = dark[i];
     }
-
     int runB = 0, runD = 0;
     for (int i = 0; i < 16 + N - 1; ++i) {
         runB = bright[i] ? (runB + 1) : 0;
@@ -46,39 +61,34 @@ bool isCorner(ivec2 p, ivec2 size) {
     return false;
 }
 
-void drawCircle(ivec2 center, ivec2 size) {
-    // Red overlay color
-    vec4 red = vec4(1.0, 0.0, 0.0, 1.0);
-    int R2 = R * R;
-
+// RACE-FREE Variante: Jeder Thread schreibt NUR sein eigenes Pixel.
+bool liesOnCircleOfCorner(ivec2 p, ivec2 size) {
+    int R2 = R*R;
     for (int dy = -R; dy <= R; ++dy) {
         for (int dx = -R; dx <= R; ++dx) {
-            ivec2 q = center + ivec2(dx, dy);
-            if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
-
             int d2 = dx*dx + dy*dy;
-            if (abs(d2 - R2) <= 2) { // pixels close to radius
-                vec4 orig = imageLoad(inImg, q);
-                vec4 blended = mix(orig, red, 0.8); // blend red with original
-                imageStore(outImg, q, blended);
-            }
+            if (abs(d2 - R2) > 2) continue;
+            ivec2 c = p - ivec2(dx, dy);
+            if (c.x < 0 || c.y < 0 || c.x >= size.x || c.y >= size.y) continue;
+            if (isCorner(c, size)) return true;
         }
     }
+    return false;
 }
 
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(inImg);
-
+    ivec2 size = imageSize();
     if (p.x >= size.x || p.y >= size.y) return;
 
-    bool corner = isCorner(p, size);
+    vec4 color = loadRGBA(p);
 
-    if (corner) {
-        drawCircle(p, size);
-    } else {
-        // If not a corner, just copy the input pixel
-        vec4 px = imageLoad(inImg, p);
-        imageStore(outImg, p, px);
+    // Markieren: roter Punkt im Zentrum ODER roter Ring um Corner, ohne Nachbarpixel aktiv zu überschreiben
+    if (isCorner(p, size)) {
+        color = vec4(1.0, 0.0, 0.0, 1.0);
+    } else if (liesOnCircleOfCorner(p, size)) {
+        color = mix(color, vec4(1.0, 0.0, 0.0, 1.0), 0.8);
     }
+
+    storeRGBA(p, color);
 }

@@ -41,12 +41,12 @@ GPUFrontend::~GPUFrontend() {
         if (m_commandPool) {
             m_device.destroyCommandPool(m_commandPool);
         }
-        m_device.destroy();
-
+    
         // Clean up descriptor resources ← NEU
         if (m_descriptorPool) {
             m_device.destroyDescriptorPool(m_descriptorPool);
         }
+        m_device.destroy();
     }
     if (m_instance) {
         m_instance.destroy();
@@ -62,6 +62,7 @@ void GPUFrontend::Setup()
     queueFamilyProperties();
     queueFamilyIndex();
     createLogicalDevice();
+    getComputeQueue(); 
     createCommandPool();
     createCommandBuffer();
 }
@@ -120,8 +121,26 @@ void GPUFrontend::queueFamilyIndex()
 
 void GPUFrontend::createLogicalDevice()
 {
-    vk::DeviceQueueCreateInfo deviceQueueCreateInfo( vk::DeviceQueueCreateFlags(), static_cast<uint32_t>( m_computeQueueFamilyIndex ), 1, &m_queuePriority );
-    m_device = m_physicalDevice.createDevice( vk::DeviceCreateInfo( vk::DeviceCreateFlags(), deviceQueueCreateInfo ) );
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo(
+        vk::DeviceQueueCreateFlags(), 
+        static_cast<uint32_t>(m_computeQueueFamilyIndex), 
+        1, 
+        &m_queuePriority
+    );
+    
+    std::vector<const char*> deviceExtensions;
+#ifdef __APPLE__
+    deviceExtensions.push_back("VK_KHR_portability_subset");
+#endif
+    
+    vk::DeviceCreateInfo deviceCreateInfo(
+        vk::DeviceCreateFlags(), 
+        deviceQueueCreateInfo,
+        {},                                      
+        deviceExtensions                             
+    );
+    
+    m_device = m_physicalDevice.createDevice(deviceCreateInfo);
 }
 
 void GPUFrontend::createCommandPool()
@@ -137,6 +156,8 @@ void GPUFrontend::createCommandBuffer()
 void GPUFrontend::stagingBufferImage(cv::Mat image, int width, int height, int pixelbytes)
 {
     m_deviceSize = width * height * pixelbytes;
+    m_imageHeight = height;
+    m_imageWidth = width; 
 
     vk::BufferCreateInfo BufferCreateInfo{
 		vk::BufferCreateFlags(),                    // Flags
@@ -246,9 +267,16 @@ void GPUFrontend::createDescriptorSetLayout()
 
 void GPUFrontend::createPipelineLayout() 
 {
+    vk::PushConstantRange pushConstantRange(
+        vk::ShaderStageFlagBits::eCompute,
+        0, 
+        sizeof(uint32_t) * 2  
+    );
+    
     vk::PipelineLayoutCreateInfo layoutInfo(
         vk::PipelineLayoutCreateFlags(),
-        m_descriptorSetLayout
+        m_descriptorSetLayout,
+        pushConstantRange  
     );
     
     m_pipelineLayout = m_device.createPipelineLayout(layoutInfo);
@@ -360,4 +388,88 @@ void GPUFrontend::createDescriptorResources()
     createDescriptorPool();
     allocateDescriptorSet();
     updateDescriptorSet();
+}
+void GPUFrontend::getComputeQueue() 
+{
+    m_computeQueue = m_device.getQueue(m_computeQueueFamilyIndex, 0);
+}
+
+void GPUFrontend::recordCommandBuffer(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) 
+{
+    vk::CommandBufferBeginInfo beginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+    m_commandBuffer.begin(beginInfo);
+    
+    m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, m_computePipeline);
+    
+    m_commandBuffer.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute,
+        m_pipelineLayout,
+        0,
+        { m_descriptorSet },
+        {}
+    );
+    
+    uint32_t dimensions[2] = { m_imageWidth, m_imageHeight };
+    m_commandBuffer.pushConstants(
+        m_pipelineLayout,
+        vk::ShaderStageFlagBits::eCompute,
+        0,
+        sizeof(dimensions),
+        dimensions
+    );
+    
+    m_commandBuffer.dispatch(groupCountX, groupCountY, groupCountZ);
+    m_commandBuffer.end();
+}
+
+
+void GPUFrontend::submitAndWait() 
+{
+    vk::Fence fence = m_device.createFence(vk::FenceCreateInfo());
+    
+    vk::SubmitInfo submitInfo(
+        0,                     
+        nullptr,             
+        nullptr,               
+        1,                     
+        &m_commandBuffer       
+    );
+    
+    m_computeQueue.submit({ submitInfo }, fence);
+
+    vk::Result result = m_device.waitForFences(
+        { fence },           
+        true,                  
+        UINT64_MAX              
+    );
+    
+    if (result != vk::Result::eSuccess) {
+        throw std::runtime_error("Failed to wait for fence!");
+    }
+    
+    m_device.destroyFence(fence);
+}
+
+void GPUFrontend::executeComputeShader(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) 
+{
+    recordCommandBuffer(groupCountX, groupCountY, groupCountZ);
+    submitAndWait();
+}
+
+cv::Mat GPUFrontend::readbackOutputBuffer(int width, int height, int channels) 
+{   
+    void* outputData = m_device.mapMemory(m_OutBufferMemory, 0, m_deviceSize);
+    
+    cv::Mat result(height, width, CV_8UC4); 
+    std::memcpy(result.data, outputData, m_deviceSize);
+    
+    m_device.unmapMemory(m_OutBufferMemory);
+    
+    if (channels == 3) {
+        cv::Mat bgr;
+        cv::cvtColor(result, bgr, cv::COLOR_RGBA2BGR);
+        return bgr;
+    }
+    
+    return result;
 }

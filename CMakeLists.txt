@@ -28,18 +28,18 @@ find_package(OpenCV REQUIRED)
 # ---- App target (skeleton; does not run compute yet) ----
 add_executable(vulkan_feature_extraction
   src/main.cpp
-  src/VulkanSetup.cpp
-  src/VK_CommandPool.cpp
-  src/VK_Image.cpp
-  src/VK_Buffer.cpp
+  src/GPUFrontend.cpp
+)
+
+target_include_directories(vulkan_feature_extraction PRIVATE 
+  ${CMAKE_SOURCE_DIR}/include
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(vulkan_feature_extraction PRIVATE 
   Vulkan::Vulkan
   ${OpenCV_LIBS}
 )
-
-target_include_directories(vulkan_feature_extraction PRIVATE ${OpenCV_INCLUDE_DIRS})
 
 # Warnings (nice during development)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
@@ -57,8 +57,6 @@ add_custom_target(shaders
 )
 add_dependencies(vulkan_feature_extraction shaders)
 # ----------------------------------------
-
-include_directories(${CMAKE_SOURCE_DIR}/include)
 
 message(STATUS "Project: ${PROJECT_DISPLAY_NAME}")
 message(STATUS "Vulkan include dirs: ${Vulkan_INCLUDE_DIRS}")
